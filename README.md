@@ -1,61 +1,127 @@
-# Doubletake (doubletake)
+# doubletake
 
-This repository provides a secure, read-only bridge between your AI Coding Agent (e.g. Claude Code, Codex, Aider) and Google Antigravity. It enables the agent to do a "double take" (get a second opinion) using the **Doubt-Driven Development** methodology.
+A read-only second-opinion CLI for AI-agent **Doubt-Driven Development**.
+
+Your AI agent writes an adversarial review prompt (artifact + contract) to a file,
+pipes it into `doubletake`, and gets back a ruthless critique from Google Gemini —
+a different model than the author, so it does not share the author's blind spots.
+
+```bash
+doubletake < /tmp/doubt-prompt.md
+```
+
+`doubletake` has **zero Python runtime dependencies** (pure stdlib) and works on
+CPython ≥ 3.9.
+
+---
+
+## Prerequisites
+
+Before installing, you need **one** of:
+
+- **Antigravity subscription** (recommended) — sign in via the
+  [Antigravity app](https://antigravity.dev) or the `gemini` CLI
+  (`gemini auth login`). This creates `~/.gemini/oauth_creds.json` which
+  `doubletake` reuses. No API key required.
+- **Gemini API key** — set `GEMINI_API_KEY` in your environment as a fallback
+  when no Antigravity login exists.
 
 ---
 
 ## 🤖 Instructions for AI Agents (Claude Code, Codex, Aider, etc.)
 
-**Hello Agent!** If the user gave you a link to this repository and asked you to install this skill, please follow these exact steps:
-
-1. **Install the CLI wrapper**: Run the following command in the user's terminal to install the `doubletake` CLI tool globally in an isolated environment.
-   ```bash
-   uv tool install git+https://github.com/aleksbuss/doubletake.git
-   ```
-   *(Fallback: If `uv` is not installed, use `pipx install git+https://github.com/aleksbuss/doubletake.git`)*
-
-2. **Verify Installation**: Ensure that the `doubletake` command is now available in the user's PATH.
-
-3. **Install the Skill**: 
-   - Read the contents of the `SKILL.md` file located in this repository.
-   - **If you are Claude Code**: Append the exact contents of `SKILL.md` into the user's global `~/.claude/CLAUDE.md` file (or the local `./CLAUDE.md` in their current project). Create the file if it does not exist.
-   - **If you are Codex or another agent**: Append the contents of `SKILL.md` to whatever file or configuration system you use to store persistent custom instructions or skills for the user.
-
-4. **Confirm**: Tell the user that the Antigravity Doubt-Driven Audit skill has been successfully installed, and you are now ready to use the `doubletake` command to double-check your code!
-
----
-
-## 👤 Instructions for Humans (Manual Installation)
-
-If you prefer to install this manually instead of asking your AI Agent to do it:
+**Hello Agent!** If the user gave you a link to this repository and asked you to
+install this skill, follow these steps exactly:
 
 1. **Install the CLI**:
    ```bash
    uv tool install git+https://github.com/aleksbuss/doubletake.git
    ```
-2. **Configure Your Agent**:
-   Copy the contents of `SKILL.md` and paste it into your agent's custom instructions file (e.g. `~/.claude/CLAUDE.md` for Claude Code).
+   *(Fallback: `pipx install git+https://github.com/aleksbuss/doubletake.git`)*
+
+2. **Verify installation**:
+   ```bash
+   doubletake --version
+   ```
+   If the command is not found, the `uv`/`pipx` bin directory may not be in
+   `PATH`. Ask the user to run `uv tool update-shell` (or add the printed path
+   manually).
+
+3. **Install the Skill** — `SKILL.md` teaches you *when and how* to invoke
+   `doubletake` as part of your development loop (the Doubt-Driven Development
+   methodology). Without it, you have the binary but not the workflow.
+   - **Claude Code**: append the exact contents of `SKILL.md` to
+     `~/.claude/CLAUDE.md` (or the local `./CLAUDE.md`). Create the file if it
+     does not exist.
+   - **Other agents**: append `SKILL.md` to your persistent custom-instructions
+     file.
+
+4. **Confirm**: Tell the user the skill is installed and that you will now use
+   `doubletake` to cross-model-review significant outputs before finalising them.
+
+---
+
+## 👤 Instructions for Humans (Manual Installation)
+
+1. **Install the CLI**:
+   ```bash
+   uv tool install git+https://github.com/aleksbuss/doubletake.git
+   ```
+
+2. **Verify**:
+   ```bash
+   doubletake --version
+   ```
+
+3. **Configure your agent** — copy `SKILL.md` into your agent's custom
+   instructions (e.g. `~/.claude/CLAUDE.md` for Claude Code).
+
+---
+
+## Usage
+
+Pipe any text prompt to stdin:
+
+```bash
+cat > /tmp/doubt-prompt.md << 'EOF'
+Adversarial review. Find what is wrong with this artifact.
+Do NOT validate. Do NOT summarize.
+
+ARTIFACT:
+def divide(a, b):
+    return a / b
+
+CONTRACT: Must handle division by zero without raising.
+EOF
+
+doubletake < /tmp/doubt-prompt.md
+```
+
+Output streams directly to stdout. Diagnostics go to stderr.
+
+---
 
 ## Authentication
 
-By default, `doubletake` uses your **Antigravity subscription** — it reuses the
-OAuth session created when you sign in to the Antigravity app (or the `gemini`
-CLI), stored at `~/.gemini/oauth_creds.json`. **No API key is required**, and
-nothing is sent to a third-party API — requests go to Google's Code Assist
-backend on your subscription.
+`doubletake` picks the best available backend automatically:
 
-If you have no Antigravity login, set `GEMINI_API_KEY` to use the Gemini
-Developer API instead.
+| Condition | Backend used |
+|-----------|-------------|
+| `~/.gemini/oauth_creds.json` exists | Antigravity subscription (Code Assist) — **no API key** |
+| No login, `GEMINI_API_KEY` set | Gemini Developer API |
+| `DOUBLETAKE_BACKEND=gemini_api` | Force API-key path regardless of login |
+
+The OAuth session is read in-memory only; `oauth_creds.json` is never rewritten.
+
+---
 
 ## Configuration
 
 All optional, via environment variables:
 
 ```bash
-export DOUBLETAKE_MODEL="gemini-3.1-pro-preview"   # default; or gemini-3-pro-preview / gemini-2.5-pro
-export DOUBLETAKE_TIMEOUT="120"            # idle timeout in seconds
-export DOUBLETAKE_BACKEND="gemini_api"     # force the GEMINI_API_KEY path
+export DOUBLETAKE_MODEL="gemini-3.1-pro-preview"  # default (also: gemini-3-pro-preview, gemini-2.5-pro)
+export DOUBLETAKE_TIMEOUT="120"                    # idle timeout in seconds (default: 120)
+export DOUBLETAKE_BACKEND="gemini_api"             # force GEMINI_API_KEY path
+export DOUBLETAKE_OAUTH_CREDS="~/.gemini/oauth_creds.json"  # override creds path
 ```
-
-`doubletake` has **zero dependencies** (pure Python stdlib) and works on
-CPython ≥ 3.9.
