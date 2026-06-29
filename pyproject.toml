@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "doubletake"
+version = "0.3.0"
+description = "A read-only second-opinion CLI for AI-agent Doubt-Driven Development, using your Antigravity subscription (no API key)"
+readme = "README.md"
+requires-python = ">=3.9"
+# Zero runtime dependencies: doubletake talks to the Code Assist / Gemini API
+# directly over stdlib HTTP (urllib), reusing the Antigravity OAuth session. No
+# SDK and no bundled binary.
+dependencies = []
+
+[project.scripts]
+doubletake = "doubletake.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/doubletake"]
