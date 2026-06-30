@@ -19,7 +19,6 @@ import http.client
 import json
 import os
 import socket
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -128,12 +127,29 @@ def _access_token() -> str:
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.load(resp)["access_token"]
-    except (OSError, KeyError, ValueError) as exc:
-        # OSError covers HTTPError/URLError/socket.timeout; KeyError/ValueError
-        # cover a missing token field or unparseable response body.
+    except urllib.error.HTTPError as exc:
+        # 400 invalid_grant = refresh token expired or revoked by the user.
+        # Give a precise, actionable message rather than a generic one.
+        try:
+            err_body = json.loads(exc.read().decode("utf-8", "replace"))
+        except Exception:  # noqa: BLE001
+            err_body = {}
+        if err_body.get("error") == "invalid_grant":
+            raise AuthError(
+                "Your Antigravity login has expired or been revoked.\n"
+                "Re-authenticate by running:\n\n"
+                "    gemini auth login\n\n"
+                "or by signing in through the Antigravity app, then run doubletake again."
+            ) from exc
         raise AuthError(
-            "Failed to refresh the Antigravity login. Sign in again via the "
-            f"Antigravity app. ({exc})"
+            f"Failed to refresh the Antigravity login (HTTP {exc.code}). "
+            "Run `gemini auth login` to re-authenticate."
+        ) from exc
+    except (OSError, KeyError, ValueError) as exc:
+        # URLError/socket.timeout → network issue; KeyError/ValueError → bad response.
+        raise AuthError(
+            "Failed to refresh the Antigravity login. "
+            f"Run `gemini auth login` to re-authenticate. ({exc})"
         ) from exc
 
 
@@ -301,28 +317,7 @@ def stream_review(prompt: str, *, system_prompt: str, model: str | None,
             f"No Antigravity login at {_OAUTH_CREDS_PATH} and no GEMINI_API_KEY. "
             "Sign in via the Antigravity app, or set GEMINI_API_KEY."
         )
-    try:
-        token = _access_token()
-    except AuthError:
-        # oauth_creds.json exists but tokens are expired and refresh failed.
-        # Fall back to GEMINI_API_KEY if available rather than hard-failing.
-        if api_key:
-            model = model or _DEFAULT_GEMINI_API_MODEL
-            url = (
-                f"{_GEMINI_API_BASE}/models/{model}:streamGenerateContent"
-                f"?alt=sse&key={urllib.parse.quote(api_key)}"
-            )
-            body = {
-                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-                "systemInstruction": {"parts": [{"text": system_prompt}]},
-            }
-            sys.stderr.write(
-                "[doubletake] ⚠️ Antigravity login expired; falling back to GEMINI_API_KEY.\n"
-            )
-            yield from _stream(url, {}, body, idle_timeout, unwrap=False,
-                               what="Gemini API (fallback)")
-            return
-        raise
+    token = _access_token()
     project = _discover_project(token)
     model = model or _DEFAULT_CODE_ASSIST_MODEL
     body = {
