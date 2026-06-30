@@ -215,6 +215,18 @@ class TestMainStreamIntegration:
         assert exc_info.value.code == 1
         assert "Empty" in capsys.readouterr().err
 
+    def test_stream_of_empty_strings_exits_1(self, capsys):
+        # Generator that yields only empty strings must also be treated as empty.
+        with (
+            patch("sys.argv", ["doubletake"]),
+            patch("sys.stdin", io.StringIO("prompt")),
+            patch("sys.stdin.isatty", return_value=False),
+            patch("doubletake.cli.client.stream_review", return_value=iter(["", ""])),
+        ):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+        assert exc_info.value.code == 1
+
 
 # ============================================================================
 # main — error handling

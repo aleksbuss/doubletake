@@ -824,6 +824,15 @@ class TestStreamReview:
             self._call()
         assert _DEFAULT_GEMINI_API_MODEL in self._url()
 
+    def test_gemini_api_key_in_header_not_url(self, tmp_path):
+        with (
+            patch("doubletake.client._OAUTH_CREDS_PATH", str(tmp_path / "no-such.json")),
+            patch.dict("os.environ", {"GEMINI_API_KEY": "secret-key"}),
+        ):
+            self._call()
+        assert "secret-key" not in self._url()
+        assert self._headers().get("x-goog-api-key") == "secret-key"
+
     def test_forced_gemini_api_overrides_login(self, tmp_path):
         creds = tmp_path / "oauth.json"
         creds.write_text(json.dumps(_make_creds()))

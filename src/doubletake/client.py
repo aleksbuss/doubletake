@@ -543,15 +543,14 @@ def stream_review(
             )
         model = model or _DEFAULT_GEMINI_API_MODEL
         url = (
-            f"{_GEMINI_API_BASE}/models/{model}:streamGenerateContent"
-            f"?alt=sse&key={urllib.parse.quote(api_key)}"
+            f"{_GEMINI_API_BASE}/models/{model}:streamGenerateContent?alt=sse"
         )
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "systemInstruction": {"parts": [{"text": system_prompt}]},
         }
         yield from _stream(
-            url, {}, body, idle_timeout,
+            url, {"x-goog-api-key": api_key}, body, idle_timeout,
             emit_fn=lambda c: _emit_gemini_text(c, unwrap=False),
             what="Gemini API",
         )

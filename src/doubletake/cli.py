@@ -121,17 +121,16 @@ def main() -> None:
     model = os.getenv("DOUBLETAKE_MODEL")
 
     try:
-        wrote_any = False
+        last_chunk = ""
         for chunk in client.stream_review(
             prompt, system_prompt=SYSTEM_PROMPT, model=model,
             idle_timeout=idle_timeout,
         ):
             sys.stdout.write(chunk)
             sys.stdout.flush()
-            wrote_any = True
-        if wrote_any:
-            # Add a trailing newline only when the model output didn't end with one.
-            if not chunk.endswith("\n"):
+            last_chunk = chunk
+        if last_chunk:
+            if not last_chunk.endswith("\n"):
                 sys.stdout.write("\n")
                 sys.stdout.flush()
         else:
