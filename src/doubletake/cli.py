@@ -39,16 +39,19 @@ OPTIONS:
     -h, --help      Print this help message and exit
     -v, --version   Print version information and exit
 
-AUTHENTICATION:
-    (default)          Uses your Antigravity subscription via the existing login
-                       at ~/.gemini/oauth_creds.json — NO API key needed.
-    GEMINI_API_KEY     Fallback only when there is no Antigravity login at all.
-                       If your login has expired, run `gemini auth login` instead.
+AUTHENTICATION (picked automatically, or forced via DOUBLETAKE_BACKEND):
+    Antigravity     Default. Reuses ~/.gemini/oauth_creds.json — NO API key.
+                    If expired: run `gemini auth login`.
+    GEMINI_API_KEY  Fallback when no Antigravity login exists.
+    claude          Set DOUBLETAKE_BACKEND=claude to review via your Claude Code
+                    subscription (macOS keychain). NO API key needed.
 
 CONFIGURATION:
-    DOUBLETAKE_MODEL   Model override (default: gemini-3.1-pro-preview).
-    DOUBLETAKE_TIMEOUT Idle timeout in seconds (default: 120, must be > 0).
-    DOUBLETAKE_BACKEND Set to 'gemini_api' to force the API-key path.
+    DOUBLETAKE_MODEL    Model override.
+                        Antigravity default: gemini-3.1-pro-preview
+                        Claude default:      claude-sonnet-4-6
+    DOUBLETAKE_TIMEOUT  Idle timeout in seconds (default: 120, must be > 0).
+    DOUBLETAKE_BACKEND  'gemini_api' | 'claude'  (default: Antigravity OAuth)
 
 Note: This tool strictly expects input via stdin to prevent shell injection.
 """
