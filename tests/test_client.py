@@ -17,6 +17,7 @@ import pytest
 from doubletake.client import (
     AuthError,
     BackendError,
+    RateLimitError,
     _access_token,
     _claude_access_token,
     _claude_refresh_token,
@@ -30,6 +31,8 @@ from doubletake.client import (
     _DEFAULT_CODE_ASSIST_MODEL,
     _DEFAULT_GEMINI_API_MODEL,
     _DEFAULT_CLAUDE_MODEL,
+    _CLAUDE_FALLBACK_MODELS,
+    _CODE_ASSIST_FALLBACK_MODELS,
 )
 
 
@@ -674,8 +677,12 @@ class TestStream:
         with pytest.raises(BackendError, match="model not found"):
             self._run(side_effect=self._http_err(404))
 
-    def test_429_raises_backenderr(self):
-        with pytest.raises(BackendError, match="rate limit"):
+    def test_429_raises_ratelimiterror(self):
+        with pytest.raises(RateLimitError, match="rate limit"):
+            self._run(side_effect=self._http_err(429))
+
+    def test_ratelimiterror_is_backenderr(self):
+        with pytest.raises(BackendError):
             self._run(side_effect=self._http_err(429))
 
     def test_500_raises_backenderr(self):
@@ -943,3 +950,109 @@ class TestStreamReview:
         ):
             self._call()
         assert "Code Assist" in self._what()
+
+    # ── Fallback on 429 ───────────────────────────────────────────────────
+
+    def test_claude_falls_back_to_sonnet_on_429(self, capsys):
+        call_count = 0
+
+        def _rate_limit_then_ok(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RateLimitError("opus 429")
+            yield "review"
+
+        with (
+            patch.dict("os.environ", {"DOUBLETAKE_BACKEND": "claude"}),
+            patch("doubletake.client._claude_access_token", return_value="tok"),
+            patch("doubletake.client._stream", side_effect=_rate_limit_then_ok),
+        ):
+            result = self._call()
+
+        assert result == ["review"]
+        err = capsys.readouterr().err
+        assert "claude-opus-4-8" in err
+        assert "claude-sonnet-4-6" in err
+        assert "falling back" in err
+
+    def test_claude_raises_when_all_models_rate_limited(self):
+        with (
+            patch.dict("os.environ", {"DOUBLETAKE_BACKEND": "claude"}),
+            patch("doubletake.client._claude_access_token", return_value="tok"),
+            patch("doubletake.client._stream",
+                  side_effect=RateLimitError("all rate limited")),
+        ):
+            with pytest.raises(RateLimitError):
+                self._call()
+
+    def test_claude_pinned_model_no_fallback(self):
+        """DOUBLETAKE_MODEL pins to one model — no fallback attempted."""
+        with (
+            patch.dict("os.environ", {"DOUBLETAKE_BACKEND": "claude"}),
+            patch("doubletake.client._claude_access_token", return_value="tok"),
+            patch("doubletake.client._stream",
+                  side_effect=RateLimitError("pinned 429")),
+        ):
+            with pytest.raises(RateLimitError):
+                self._call(model="claude-opus-4-8")
+
+    def test_code_assist_falls_back_on_429(self, tmp_path, capsys):
+        creds = tmp_path / "oauth.json"
+        creds.write_text(json.dumps(_make_creds()))
+        call_count = 0
+
+        def _rate_limit_then_ok(*a, **kw):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RateLimitError("3.1 capacity")
+            yield "review"
+
+        with (
+            patch("doubletake.client._OAUTH_CREDS_PATH", str(creds)),
+            patch("doubletake.client._access_token", return_value="tok"),
+            patch("doubletake.client._discover_project", return_value=None),
+            patch("doubletake.client._stream", side_effect=_rate_limit_then_ok),
+        ):
+            result = self._call()
+
+        assert result == ["review"]
+        err = capsys.readouterr().err
+        assert "gemini-3.1-pro-preview" in err
+        assert "falling back" in err
+
+    def test_code_assist_fallback_chain_exhausted_raises(self, tmp_path):
+        creds = tmp_path / "oauth.json"
+        creds.write_text(json.dumps(_make_creds()))
+        with (
+            patch("doubletake.client._OAUTH_CREDS_PATH", str(creds)),
+            patch("doubletake.client._access_token", return_value="tok"),
+            patch("doubletake.client._discover_project", return_value=None),
+            patch("doubletake.client._stream",
+                  side_effect=RateLimitError("all capacity gone")),
+        ):
+            with pytest.raises(RateLimitError):
+                self._call()
+
+    def test_code_assist_fallback_covers_full_chain(self, tmp_path, capsys):
+        """All three models in the chain get tried before raising."""
+        creds = tmp_path / "oauth.json"
+        creds.write_text(json.dumps(_make_creds()))
+        tried_models: list[str] = []
+
+        def _capture_and_fail(*a, **kw):
+            body = a[2]
+            tried_models.append(body["model"])
+            raise RateLimitError("capacity")
+
+        with (
+            patch("doubletake.client._OAUTH_CREDS_PATH", str(creds)),
+            patch("doubletake.client._access_token", return_value="tok"),
+            patch("doubletake.client._discover_project", return_value=None),
+            patch("doubletake.client._stream", side_effect=_capture_and_fail),
+        ):
+            with pytest.raises(RateLimitError):
+                self._call()
+
+        assert tried_models == _CODE_ASSIST_FALLBACK_MODELS

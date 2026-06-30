@@ -50,10 +50,13 @@ _GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta"
 
 # Latest Pro model served by Code Assist. NOTE: the wire id is
 # "gemini-3.1-pro-preview" — bare "gemini-3.1-pro" and "gemini-3-pro" both 404.
-# Standard-tier rate-limits this model tightly; override to "gemini-3-pro-preview"
-# or "gemini-2.5-pro" if you hit frequent 429s.
 _DEFAULT_CODE_ASSIST_MODEL = "gemini-3.1-pro-preview"
 _DEFAULT_GEMINI_API_MODEL = "gemini-2.5-pro"
+
+# Automatic fallback chains on 429. Tried in order; first success wins.
+# DOUBLETAKE_MODEL overrides the entire chain (single model, no fallback).
+_CODE_ASSIST_FALLBACK_MODELS = ["gemini-3.1-pro-preview", "gemini-3-pro-preview", "gemini-2.5-pro"]
+_CLAUDE_FALLBACK_MODELS = ["claude-opus-4-8", "claude-sonnet-4-6"]
 
 _OAUTH_CREDS_PATH = os.path.expanduser(
     os.environ.get("DOUBLETAKE_OAUTH_CREDS", "~/.gemini/oauth_creds.json")
@@ -90,6 +93,10 @@ class AuthError(RuntimeError):
 
 class BackendError(RuntimeError):
     """The model backend returned an error (HTTP status, quota, bad model, …)."""
+
+
+class RateLimitError(BackendError):
+    """429 from the backend — quota or capacity exhausted for this model."""
 
 
 # ---------------------------------------------------------------------------
@@ -451,10 +458,9 @@ def _stream(
                 f"DOUBLETAKE_MODEL. {detail}"
             ) from exc
         if exc.code == 429:
-            raise BackendError(
-                f"{what}: rate limit / quota exceeded (429). "
-                f"Wait a minute or set DOUBLETAKE_MODEL to a different model. {detail}"
-            )
+            raise RateLimitError(
+                f"{what}: rate limit / quota exceeded (429). {detail}"
+            ) from exc
         raise BackendError(f"{what} error {exc.code}: {detail}") from exc
     except OSError as exc:
         raise BackendError(f"{what}: network error: {exc}") from exc
@@ -512,25 +518,37 @@ def stream_review(
     # ── Claude Code backend ───────────────────────────────────────────────
     if forced == "claude":
         token = _claude_access_token()
-        model = model or _DEFAULT_CLAUDE_MODEL
-        body = {
-            "model": model,
-            "max_tokens": 8192,
-            "system": system_prompt,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": True,
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "anthropic-version": _CLAUDE_ANTHROPIC_VERSION,
         }
-        yield from _stream(
-            f"{_CLAUDE_API_BASE}/messages",
-            {
-                "Authorization": f"Bearer {token}",
-                "anthropic-version": _CLAUDE_ANTHROPIC_VERSION,
-            },
-            body, idle_timeout,
-            emit_fn=_emit_claude_text,
-            what="Claude Code",
-        )
-        return
+        # If the user pinned a model, use only that. Otherwise try the chain.
+        models = [model] if model else _CLAUDE_FALLBACK_MODELS
+        last_exc: RateLimitError | None = None
+        for m in models:
+            if last_exc is not None:
+                sys.stderr.write(
+                    f"[doubletake] ⚠️ {models[models.index(m) - 1]} rate-limited;"
+                    f" falling back to {m}.\n"
+                )
+            body = {
+                "model": m,
+                "max_tokens": 8192,
+                "system": system_prompt,
+                "messages": [{"role": "user", "content": prompt}],
+                "stream": True,
+            }
+            try:
+                yield from _stream(
+                    f"{_CLAUDE_API_BASE}/messages",
+                    headers, body, idle_timeout,
+                    emit_fn=_emit_claude_text,
+                    what="Claude Code",
+                )
+                return
+            except RateLimitError as exc:
+                last_exc = exc
+        raise last_exc  # type: ignore[misc]
 
     # ── Gemini Developer API (forced or fallback) ─────────────────────────
     have_login = os.path.exists(_OAUTH_CREDS_PATH)
@@ -542,9 +560,7 @@ def stream_review(
                 "DOUBLETAKE_BACKEND=gemini_api but GEMINI_API_KEY is unset."
             )
         model = model or _DEFAULT_GEMINI_API_MODEL
-        url = (
-            f"{_GEMINI_API_BASE}/models/{model}:streamGenerateContent?alt=sse"
-        )
+        url = f"{_GEMINI_API_BASE}/models/{model}:streamGenerateContent?alt=sse"
         body = {
             "contents": [{"role": "user", "parts": [{"text": prompt}]}],
             "systemInstruction": {"parts": [{"text": system_prompt}]},
@@ -564,20 +580,33 @@ def stream_review(
         )
     token = _access_token()
     project = _discover_project(token)
-    model = model or _DEFAULT_CODE_ASSIST_MODEL
-    body = {
-        "model": model,
-        "user_prompt_id": str(uuid.uuid4()),
-        "request": {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "systemInstruction": {"parts": [{"text": system_prompt}]},
-        },
-    }
-    if project:
-        body["project"] = project
-    yield from _stream(
-        f"{_CODE_ASSIST_BASE}:streamGenerateContent?alt=sse",
-        {"Authorization": f"Bearer {token}"}, body, idle_timeout,
-        emit_fn=lambda c: _emit_gemini_text(c, unwrap=True),
-        what="Antigravity (Code Assist)",
-    )
+    # If the user pinned a model, use only that. Otherwise try the chain.
+    models = [model] if model else _CODE_ASSIST_FALLBACK_MODELS
+    last_exc = None
+    for m in models:
+        if last_exc is not None:
+            sys.stderr.write(
+                f"[doubletake] ⚠️ {models[models.index(m) - 1]} rate-limited;"
+                f" falling back to {m}.\n"
+            )
+        body = {
+            "model": m,
+            "user_prompt_id": str(uuid.uuid4()),
+            "request": {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+            },
+        }
+        if project:
+            body["project"] = project
+        try:
+            yield from _stream(
+                f"{_CODE_ASSIST_BASE}:streamGenerateContent?alt=sse",
+                {"Authorization": f"Bearer {token}"}, body, idle_timeout,
+                emit_fn=lambda c: _emit_gemini_text(c, unwrap=True),
+                what="Antigravity (Code Assist)",
+            )
+            return
+        except RateLimitError as exc:
+            last_exc = exc
+    raise last_exc  # type: ignore[misc]
