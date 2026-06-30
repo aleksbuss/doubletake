@@ -42,10 +42,11 @@ OPTIONS:
 AUTHENTICATION:
     (default)          Uses your Antigravity subscription via the existing login
                        at ~/.gemini/oauth_creds.json — NO API key needed.
-    GEMINI_API_KEY     Fallback when there is no Antigravity login.
+    GEMINI_API_KEY     Fallback when there is no Antigravity login, or when
+                       the stored login has expired.
 
 CONFIGURATION:
-    DOUBLETAKE_MODEL   Model override (default: gemini-2.5-pro).
+    DOUBLETAKE_MODEL   Model override (default: gemini-3.1-pro-preview).
     DOUBLETAKE_TIMEOUT Idle timeout in seconds (default: 120).
     DOUBLETAKE_BACKEND Set to 'gemini_api' to force the API-key path.
 

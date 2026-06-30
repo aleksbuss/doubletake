@@ -19,6 +19,7 @@ import http.client
 import json
 import os
 import socket
+import sys
 import time
 import urllib.error
 import urllib.parse
@@ -300,7 +301,28 @@ def stream_review(prompt: str, *, system_prompt: str, model: str | None,
             f"No Antigravity login at {_OAUTH_CREDS_PATH} and no GEMINI_API_KEY. "
             "Sign in via the Antigravity app, or set GEMINI_API_KEY."
         )
-    token = _access_token()
+    try:
+        token = _access_token()
+    except AuthError:
+        # oauth_creds.json exists but tokens are expired and refresh failed.
+        # Fall back to GEMINI_API_KEY if available rather than hard-failing.
+        if api_key:
+            model = model or _DEFAULT_GEMINI_API_MODEL
+            url = (
+                f"{_GEMINI_API_BASE}/models/{model}:streamGenerateContent"
+                f"?alt=sse&key={urllib.parse.quote(api_key)}"
+            )
+            body = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+            }
+            sys.stderr.write(
+                "[doubletake] ⚠️ Antigravity login expired; falling back to GEMINI_API_KEY.\n"
+            )
+            yield from _stream(url, {}, body, idle_timeout, unwrap=False,
+                               what="Gemini API (fallback)")
+            return
+        raise
     project = _discover_project(token)
     model = model or _DEFAULT_CODE_ASSIST_MODEL
     body = {
