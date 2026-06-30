@@ -524,11 +524,13 @@ def stream_review(
         }
         # If the user pinned a model, use only that. Otherwise try the chain.
         models = [model] if model else _CLAUDE_FALLBACK_MODELS
+        if not models:
+            raise BackendError("No Claude models configured.")
         last_exc: RateLimitError | None = None
-        for m in models:
-            if last_exc is not None:
+        for i, m in enumerate(models):
+            if i > 0:
                 sys.stderr.write(
-                    f"[doubletake] ⚠️ {models[models.index(m) - 1]} rate-limited;"
+                    f"[doubletake] ⚠️ {models[i - 1]} rate-limited;"
                     f" falling back to {m}.\n"
                 )
             body = {
@@ -548,7 +550,7 @@ def stream_review(
                 return
             except RateLimitError as exc:
                 last_exc = exc
-        raise last_exc  # type: ignore[misc]
+        raise last_exc  # type: ignore[misc]  — loop ran (models non-empty), set on first 429
 
     # ── Gemini Developer API (forced or fallback) ─────────────────────────
     have_login = os.path.exists(_OAUTH_CREDS_PATH)
@@ -582,11 +584,13 @@ def stream_review(
     project = _discover_project(token)
     # If the user pinned a model, use only that. Otherwise try the chain.
     models = [model] if model else _CODE_ASSIST_FALLBACK_MODELS
-    last_exc = None
-    for m in models:
-        if last_exc is not None:
+    if not models:
+        raise BackendError("No Code Assist models configured.")
+    last_exc: RateLimitError | None = None
+    for i, m in enumerate(models):
+        if i > 0:
             sys.stderr.write(
-                f"[doubletake] ⚠️ {models[models.index(m) - 1]} rate-limited;"
+                f"[doubletake] ⚠️ {models[i - 1]} rate-limited;"
                 f" falling back to {m}.\n"
             )
         body = {
@@ -609,4 +613,4 @@ def stream_review(
             return
         except RateLimitError as exc:
             last_exc = exc
-    raise last_exc  # type: ignore[misc]
+    raise last_exc  # type: ignore[misc]  — loop ran (models non-empty), set on first 429

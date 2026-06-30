@@ -954,12 +954,12 @@ class TestStreamReview:
     # ── Fallback on 429 ───────────────────────────────────────────────────
 
     def test_claude_falls_back_to_sonnet_on_429(self, capsys):
-        call_count = 0
+        tried_models: list[str] = []
 
         def _rate_limit_then_ok(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
+            body = a[2]
+            tried_models.append(body["model"])
+            if len(tried_models) == 1:
                 raise RateLimitError("opus 429")
             yield "review"
 
@@ -971,10 +971,10 @@ class TestStreamReview:
             result = self._call()
 
         assert result == ["review"]
+        assert tried_models == ["claude-opus-4-8", "claude-sonnet-4-6"]
         err = capsys.readouterr().err
         assert "claude-opus-4-8" in err
-        assert "claude-sonnet-4-6" in err
-        assert "falling back" in err
+        assert "falling back to claude-sonnet-4-6" in err
 
     def test_claude_raises_when_all_models_rate_limited(self):
         with (
@@ -1000,12 +1000,12 @@ class TestStreamReview:
     def test_code_assist_falls_back_on_429(self, tmp_path, capsys):
         creds = tmp_path / "oauth.json"
         creds.write_text(json.dumps(_make_creds()))
-        call_count = 0
+        tried_models: list[str] = []
 
         def _rate_limit_then_ok(*a, **kw):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
+            body = a[2]
+            tried_models.append(body["model"])
+            if len(tried_models) == 1:
                 raise RateLimitError("3.1 capacity")
             yield "review"
 
@@ -1018,9 +1018,10 @@ class TestStreamReview:
             result = self._call()
 
         assert result == ["review"]
+        assert tried_models == ["gemini-3.1-pro-preview", "gemini-3-pro-preview"]
         err = capsys.readouterr().err
         assert "gemini-3.1-pro-preview" in err
-        assert "falling back" in err
+        assert "falling back to gemini-3-pro-preview" in err
 
     def test_code_assist_fallback_chain_exhausted_raises(self, tmp_path):
         creds = tmp_path / "oauth.json"
