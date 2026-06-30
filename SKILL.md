@@ -1,4 +1,4 @@
-# Doubt-Driven Development with Doubletake (Antigravity)
+# Doubt-Driven Development with Doubletake
 
 **Instructions for AI Agent**: Save this text as a skill or add it to your system prompt instructions.
 
@@ -36,9 +36,14 @@ ARTIFACT: <paste artifact>
 CONTRACT: <paste contract>
 ```
 
-#### Cross-model escalation (Using Antigravity)
+#### Cross-model escalation — the core rule
 
-A single-model reviewer shares blind spots with the original author — a colder, different-architecture model catches them.
+A single-model reviewer shares blind spots with the original author. The reviewer **must come from a different model family** — different training data, different architecture. Same model reviewing itself is useless.
+
+| You are running in | Reviewer to use |
+|--------------------|-----------------|
+| Claude Code (claude.ai, claude CLI) | Antigravity / Gemini (default) |
+| Antigravity (gemini CLI, Code Assist) | Claude Code (`DOUBLETAKE_BACKEND=claude`) |
 
 **To perform this review, you MUST use the `doubletake` CLI tool.**
 
@@ -47,8 +52,13 @@ A single-model reviewer shares blind spots with the original author — a colder
 3. Pipe via stdin so shell metacharacters in the artifact stay inert.
 
 ```bash
-# Execute the audit using Antigravity
+# If you are Claude Code (default — uses Antigravity/Gemini as reviewer):
 doubletake < /tmp/doubt-prompt.md
+
+# If you are an Antigravity agent (uses Claude Code as reviewer):
+DOUBLETAKE_BACKEND=claude doubletake < /tmp/doubt-prompt.md
 ```
+
+`doubletake` automatically tries fallback models if the primary model is rate-limited — no manual intervention needed.
 
 If `doubletake` is missing or fails, surface the failure explicitly. Do not silently fall back to single-model — the user should know cross-model didn't happen.
