@@ -77,7 +77,7 @@ _CLAUDE_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 _CLAUDE_API_BASE = "https://api.anthropic.com/v1"
 _CLAUDE_ANTHROPIC_VERSION = "2023-06-01"
 
-_DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
+_DEFAULT_CLAUDE_MODEL = "claude-opus-4-8"
 
 
 # ---------------------------------------------------------------------------

@@ -49,7 +49,7 @@ AUTHENTICATION (picked automatically, or forced via DOUBLETAKE_BACKEND):
 CONFIGURATION:
     DOUBLETAKE_MODEL    Model override.
                         Antigravity default: gemini-3.1-pro-preview
-                        Claude default:      claude-sonnet-4-6
+                        Claude default:      claude-opus-4-8
     DOUBLETAKE_TIMEOUT  Idle timeout in seconds (default: 120, must be > 0).
     DOUBLETAKE_BACKEND  'gemini_api' | 'claude'  (default: Antigravity OAuth)
 
