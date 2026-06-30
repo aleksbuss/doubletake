@@ -7,6 +7,7 @@ API key required. If there is no login but ``GEMINI_API_KEY`` is set, it falls
 back to the Gemini Developer API. See ``client.py`` for the transport.
 """
 
+import math
 import os
 import sys
 
@@ -70,9 +71,9 @@ def _idle_timeout() -> float:
             f"using {DEFAULT_IDLE_TIMEOUT:.0f}s.\n"
         )
         return DEFAULT_IDLE_TIMEOUT
-    if value <= 0:
+    if not math.isfinite(value) or value <= 0:
         sys.stderr.write(
-            f"[doubletake] ⚠️ DOUBLETAKE_TIMEOUT must be > 0, got {raw!r}; "
+            f"[doubletake] ⚠️ DOUBLETAKE_TIMEOUT must be a finite number > 0, got {raw!r}; "
             f"using {DEFAULT_IDLE_TIMEOUT:.0f}s.\n"
         )
         return DEFAULT_IDLE_TIMEOUT
@@ -148,16 +149,16 @@ def main() -> None:
         sys.exit(0)
     except OSError as exc:
         # Catches ENOSPC (disk full when piping to file), BlockingIOError, etc.
-        sys.stderr.write(f"\n[doubletake error] ⚠️ Write error: {exc}\n")
+        sys.stderr.write(f"[doubletake error] ⚠️ Write error: {exc}\n")
         sys.exit(1)
     except TimeoutError as exc:
-        sys.stderr.write(f"\n[doubletake error] ⚠️ {exc}\n")
+        sys.stderr.write(f"[doubletake error] ⚠️ {exc}\n")
         sys.exit(1)
     except client.AuthError as exc:
-        sys.stderr.write(f"\n[doubletake error] ⚠️ {exc}\n")
+        sys.stderr.write(f"[doubletake error] ⚠️ {exc}\n")
         sys.exit(1)
     except client.BackendError as exc:
-        sys.stderr.write(f"\n[doubletake error] ⚠️ {exc}\n")
+        sys.stderr.write(f"[doubletake error] ⚠️ {exc}\n")
         sys.exit(1)
     except KeyboardInterrupt:
         sys.stderr.write("\n[doubletake] Interrupted by user.\n")

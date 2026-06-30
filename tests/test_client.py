@@ -33,6 +33,7 @@ from doubletake.client import (
     _DEFAULT_CLAUDE_MODEL,
     _CLAUDE_FALLBACK_MODELS,
     _CODE_ASSIST_FALLBACK_MODELS,
+    _GEMINI_API_FALLBACK_MODELS,
 )
 
 
@@ -1035,6 +1036,31 @@ class TestStreamReview:
         ):
             with pytest.raises(RateLimitError):
                 self._call()
+
+    def test_gemini_api_falls_back_on_429(self, tmp_path, capsys):
+        tried_models: list[str] = []
+
+        def _rate_limit_then_ok(*a, **kw):
+            # extract model from URL: .../models/<model>:streamGenerate...
+            url = a[0]
+            m = url.split("/models/")[1].split(":")[0]
+            tried_models.append(m)
+            if len(tried_models) == 1:
+                raise RateLimitError("gemini-2.5-pro 429")
+            yield "review"
+
+        with (
+            patch("doubletake.client._OAUTH_CREDS_PATH", str(tmp_path / "no.json")),
+            patch.dict("os.environ", {"GEMINI_API_KEY": "key"}),
+            patch("doubletake.client._stream", side_effect=_rate_limit_then_ok),
+        ):
+            result = self._call()
+
+        assert result == ["review"]
+        assert tried_models == _GEMINI_API_FALLBACK_MODELS
+        err = capsys.readouterr().err
+        assert "gemini-2.5-pro" in err
+        assert "falling back to gemini-3-flash-preview" in err
 
     def test_code_assist_fallback_covers_full_chain(self, tmp_path, capsys):
         """All three models in the chain get tried before raising."""

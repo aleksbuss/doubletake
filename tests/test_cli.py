@@ -47,23 +47,35 @@ class TestIdleTimeout:
         with patch.dict("os.environ", {"DOUBLETAKE_TIMEOUT": "0"}):
             result = _idle_timeout()
         assert result == DEFAULT_IDLE_TIMEOUT
-        assert "must be > 0" in capsys.readouterr().err
+        assert "finite" in capsys.readouterr().err
 
     def test_negative_warns_and_returns_default(self, capsys):
         with patch.dict("os.environ", {"DOUBLETAKE_TIMEOUT": "-10"}):
             result = _idle_timeout()
         assert result == DEFAULT_IDLE_TIMEOUT
-        assert "must be > 0" in capsys.readouterr().err
+        assert "finite" in capsys.readouterr().err
 
     def test_float_zero_warns_and_returns_default(self, capsys):
         with patch.dict("os.environ", {"DOUBLETAKE_TIMEOUT": "0.0"}):
             result = _idle_timeout()
         assert result == DEFAULT_IDLE_TIMEOUT
-        assert "must be > 0" in capsys.readouterr().err
+        assert "finite" in capsys.readouterr().err
 
     def test_very_small_positive_accepted(self):
         with patch.dict("os.environ", {"DOUBLETAKE_TIMEOUT": "0.001"}):
             assert _idle_timeout() == 0.001
+
+    def test_inf_warns_and_returns_default(self, capsys):
+        with patch.dict("os.environ", {"DOUBLETAKE_TIMEOUT": "inf"}):
+            result = _idle_timeout()
+        assert result == DEFAULT_IDLE_TIMEOUT
+        assert "finite" in capsys.readouterr().err
+
+    def test_nan_warns_and_returns_default(self, capsys):
+        with patch.dict("os.environ", {"DOUBLETAKE_TIMEOUT": "nan"}):
+            result = _idle_timeout()
+        assert result == DEFAULT_IDLE_TIMEOUT
+        assert "finite" in capsys.readouterr().err
 
     def test_empty_string_warns_and_returns_default(self, capsys):
         with patch.dict("os.environ", {"DOUBLETAKE_TIMEOUT": ""}):

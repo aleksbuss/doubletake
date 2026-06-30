@@ -56,6 +56,7 @@ _DEFAULT_GEMINI_API_MODEL = "gemini-2.5-pro"
 # Automatic fallback chains on 429. Tried in order; first success wins.
 # DOUBLETAKE_MODEL overrides the entire chain (single model, no fallback).
 _CODE_ASSIST_FALLBACK_MODELS = ["gemini-3.1-pro-preview", "gemini-3-pro-preview", "gemini-2.5-pro"]
+_GEMINI_API_FALLBACK_MODELS = ["gemini-2.5-pro", "gemini-3-flash-preview"]
 _CLAUDE_FALLBACK_MODELS = ["claude-opus-4-8", "claude-sonnet-4-6"]
 
 _OAUTH_CREDS_PATH = os.path.expanduser(
@@ -561,18 +562,31 @@ def stream_review(
             raise AuthError(
                 "DOUBLETAKE_BACKEND=gemini_api but GEMINI_API_KEY is unset."
             )
-        model = model or _DEFAULT_GEMINI_API_MODEL
-        url = f"{_GEMINI_API_BASE}/models/{model}:streamGenerateContent?alt=sse"
-        body = {
-            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-            "systemInstruction": {"parts": [{"text": system_prompt}]},
-        }
-        yield from _stream(
-            url, {"x-goog-api-key": api_key}, body, idle_timeout,
-            emit_fn=lambda c: _emit_gemini_text(c, unwrap=False),
-            what="Gemini API",
-        )
-        return
+        models = [model] if model else _GEMINI_API_FALLBACK_MODELS
+        if not models:
+            raise BackendError("No Gemini API models configured.")
+        last_exc: RateLimitError | None = None
+        for i, m in enumerate(models):
+            if i > 0:
+                sys.stderr.write(
+                    f"[doubletake] ⚠️ {models[i - 1]} rate-limited;"
+                    f" falling back to {m}.\n"
+                )
+            url = f"{_GEMINI_API_BASE}/models/{m}:streamGenerateContent?alt=sse"
+            body = {
+                "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+                "systemInstruction": {"parts": [{"text": system_prompt}]},
+            }
+            try:
+                yield from _stream(
+                    url, {"x-goog-api-key": api_key}, body, idle_timeout,
+                    emit_fn=lambda c: _emit_gemini_text(c, unwrap=False),
+                    what="Gemini API",
+                )
+                return
+            except RateLimitError as exc:
+                last_exc = exc
+        raise last_exc  # type: ignore[misc]
 
     # ── Antigravity subscription (Code Assist OAuth) ──────────────────────
     if not have_login:
