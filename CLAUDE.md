@@ -103,8 +103,8 @@ live at `…candidates[].content.parts[].text`; **`thought` parts are skipped**.
 - **Build backend:** hatchling, `src/` layout (`packages = ["src/doubletake"]`).
 - **Install (user):** `uv tool install git+https://github.com/aleksbuss/doubletake.git`
   (fallback `pipx install …`).
-- **Install from local working tree (after edits):**
-  `uv tool install --force /Users/aleksejsbuss/doubletake`
+- **Install from local working tree (after edits, run from repo root):**
+  `uv tool uninstall doubletake; uv tool install .`
 - **Run from source without installing (zero deps, so any python ≥3.9 works):**
   ```bash
   echo "…prompt…" | PYTHONPATH=$(pwd)/src python3 -m doubletake.cli

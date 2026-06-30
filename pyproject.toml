@@ -8,6 +8,21 @@ version = "0.3.0"
 description = "A read-only second-opinion CLI for AI-agent Doubt-Driven Development, using your Antigravity subscription (no API key)"
 readme = "README.md"
 requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Aleksejs Buss", email = "aleksbuss@gmail.com"}]
+keywords = ["ai", "code-review", "gemini", "antigravity", "cli"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Quality Assurance",
+]
 # Zero runtime dependencies: doubletake talks to the Code Assist / Gemini API
 # directly over stdlib HTTP (urllib), reusing the Antigravity OAuth session. No
 # SDK and no bundled binary.

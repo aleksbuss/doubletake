@@ -107,7 +107,8 @@ Output streams directly to stdout. Diagnostics go to stderr.
 
 | Condition | Backend used |
 |-----------|-------------|
-| `~/.gemini/oauth_creds.json` exists | Antigravity subscription (Code Assist) — **no API key** |
+| `~/.gemini/oauth_creds.json` exists and valid | Antigravity subscription (Code Assist) — **no API key** |
+| Login exists but **tokens expired** | `AuthError` → run `gemini auth login` to fix |
 | No login, `GEMINI_API_KEY` set | Gemini Developer API |
 | `DOUBLETAKE_BACKEND=gemini_api` | Force API-key path regardless of login |
 

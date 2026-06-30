@@ -101,9 +101,20 @@ def _access_token() -> str:
             "`gemini` CLI), or set GEMINI_API_KEY to use the Gemini API."
         ) from exc
 
+    # Guard against malformed creds files (array instead of object, etc.)
+    if not isinstance(creds, dict):
+        raise AuthError(
+            f"Malformed credentials file at {_OAUTH_CREDS_PATH} "
+            "(expected a JSON object). Delete the file and run `gemini auth login`."
+        )
+
     token = creds.get("access_token")
-    # gemini-cli stores ms since epoch; tolerate a missing/null value.
-    expiry_ms = creds.get("expiry_date") or 0
+    # gemini-cli stores ms since epoch; tolerate a missing/null/non-numeric value.
+    try:
+        expiry_ms = int(creds.get("expiry_date") or 0)
+    except (TypeError, ValueError):
+        expiry_ms = 0
+
     # Refresh if missing or within 60s of expiry.
     if token and time.time() * 1000 < expiry_ms - 60_000:
         return token
@@ -111,7 +122,8 @@ def _access_token() -> str:
     refresh_token = creds.get("refresh_token")
     if not refresh_token:
         raise AuthError(
-            "Stored Antigravity login has no refresh token; sign in again."
+            "Stored Antigravity login has no refresh token. "
+            "Run `gemini auth login` to re-authenticate."
         )
     form = urllib.parse.urlencode({
         "client_id": _OAUTH_CLIENT_ID,
@@ -134,7 +146,7 @@ def _access_token() -> str:
             err_body = json.loads(exc.read().decode("utf-8", "replace"))
         except Exception:  # noqa: BLE001
             err_body = {}
-        if err_body.get("error") == "invalid_grant":
+        if isinstance(err_body, dict) and err_body.get("error") == "invalid_grant":
             raise AuthError(
                 "Your Antigravity login has expired or been revoked.\n"
                 "Re-authenticate by running:\n\n"
@@ -174,9 +186,8 @@ def _discover_project(token: str) -> str | None:
         ) as resp:
             data = json.load(resp)
         return data.get("cloudaicompanionProject") or env_project
-    except (OSError, ValueError):
-        # Non-fatal (covers HTTP/URL/socket-timeout/JSON errors): fall back to
-        # env (or None / a managed project).
+    except (OSError, ValueError, http.client.IncompleteRead):
+        # Non-fatal: covers HTTP/URL/socket-timeout/JSON/truncated-response errors.
         return env_project
 
 
@@ -189,16 +200,24 @@ def _emit_text(chunk: str, unwrap: bool) -> Iterator[str]:
         obj = json.loads(chunk)
     except ValueError:
         return
+    if not isinstance(obj, dict):
+        return
     # Code Assist wraps the payload in "response" (which may be null on
     # metadata-only chunks); the Gemini API does not wrap.
     root = (obj.get("response") or {}) if unwrap else obj
     for cand in (root or {}).get("candidates") or []:
-        for part in cand.get("content", {}).get("parts", []):
+        if not isinstance(cand, dict):
+            continue
+        # content may be explicitly null when generation is blocked (safety filters).
+        for part in (cand.get("content") or {}).get("parts") or []:
+            if not isinstance(part, dict):
+                continue
             # Skip "thought" parts — we stream only the final review text.
             if part.get("thought"):
                 continue
             text = part.get("text")
-            if text:
+            # Only yield actual strings; ignore null / non-string fields.
+            if isinstance(text, str) and text:
                 yield text
 
 
@@ -252,7 +271,10 @@ def _stream(url: str, headers: dict, body: dict, idle_timeout: float,
                 f"DOUBLETAKE_MODEL. {detail}"
             ) from exc
         if exc.code == 429:
-            raise BackendError(f"{what}: rate limit / quota exceeded (429). {detail}")
+            raise BackendError(
+                f"{what}: rate limit / quota exceeded (429). "
+                f"Wait a minute or set DOUBLETAKE_MODEL=gemini-3-pro-preview. {detail}"
+            )
         raise BackendError(f"{what} error {exc.code}: {detail}") from exc
     except OSError as exc:
         # URLError, socket.timeout and other connect-time errors.
@@ -292,6 +314,16 @@ def stream_review(prompt: str, *, system_prompt: str, model: str | None,
     forced = os.getenv("DOUBLETAKE_BACKEND")
     have_login = os.path.exists(_OAUTH_CREDS_PATH)
     api_key = os.getenv("GEMINI_API_KEY")
+
+    # Warn loudly if DOUBLETAKE_BACKEND is set to an unrecognized value so the
+    # user knows their override was not applied.
+    if forced and forced != "gemini_api":
+        import sys
+        sys.stderr.write(
+            f"[doubletake] ⚠️ Unrecognized DOUBLETAKE_BACKEND={forced!r}. "
+            "Only 'gemini_api' is supported. Ignoring and using Antigravity.\n"
+        )
+        forced = None
 
     use_api_key = forced == "gemini_api" or (not have_login and api_key)
 

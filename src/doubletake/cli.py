@@ -47,7 +47,7 @@ AUTHENTICATION:
 
 CONFIGURATION:
     DOUBLETAKE_MODEL   Model override (default: gemini-3.1-pro-preview).
-    DOUBLETAKE_TIMEOUT Idle timeout in seconds (default: 120).
+    DOUBLETAKE_TIMEOUT Idle timeout in seconds (default: 120, must be > 0).
     DOUBLETAKE_BACKEND Set to 'gemini_api' to force the API-key path.
 
 Note: This tool strictly expects input via stdin to prevent shell injection.
@@ -60,13 +60,20 @@ def _idle_timeout() -> float:
     if raw is None:
         return DEFAULT_IDLE_TIMEOUT
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
         sys.stderr.write(
             f"[doubletake] ⚠️ Ignoring invalid DOUBLETAKE_TIMEOUT={raw!r}; "
             f"using {DEFAULT_IDLE_TIMEOUT:.0f}s.\n"
         )
         return DEFAULT_IDLE_TIMEOUT
+    if value <= 0:
+        sys.stderr.write(
+            f"[doubletake] ⚠️ DOUBLETAKE_TIMEOUT must be > 0, got {raw!r}; "
+            f"using {DEFAULT_IDLE_TIMEOUT:.0f}s.\n"
+        )
+        return DEFAULT_IDLE_TIMEOUT
+    return value
 
 
 def _read_prompt() -> str:
@@ -77,10 +84,11 @@ def _read_prompt() -> str:
         sys.exit(1)
     try:
         prompt = sys.stdin.read()
-    except UnicodeDecodeError:
+    except (UnicodeDecodeError, ValueError) as exc:
+        # UnicodeDecodeError: binary/invalid-encoding input.
+        # ValueError: stdin closed before read (I/O operation on closed file).
         sys.stderr.write(
-            "[doubletake error] ⚠️ Expected text input, but received "
-            "binary data or invalid encoding.\n"
+            f"[doubletake error] ⚠️ Could not read from stdin: {exc}\n"
         )
         sys.exit(1)
     if not prompt.strip():
@@ -111,16 +119,18 @@ def main() -> None:
 
     try:
         wrote_any = False
-        for token in client.stream_review(
+        for chunk in client.stream_review(
             prompt, system_prompt=SYSTEM_PROMPT, model=model,
             idle_timeout=idle_timeout,
         ):
-            sys.stdout.write(token)
+            sys.stdout.write(chunk)
             sys.stdout.flush()
             wrote_any = True
         if wrote_any:
-            sys.stdout.write("\n")
-            sys.stdout.flush()
+            # Add a trailing newline only when the model output didn't end with one.
+            if not chunk.endswith("\n"):
+                sys.stdout.write("\n")
+                sys.stdout.flush()
         else:
             sys.stderr.write("[doubletake] ⚠️ Empty response from model.\n")
             sys.exit(1)
@@ -128,9 +138,16 @@ def main() -> None:
         # Downstream consumer (e.g. `| head`) closed the pipe. The broken fd is
         # stdout, so redirect *stdout* to devnull to stop the interpreter's
         # shutdown flush from re-raising, then exit quietly.
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, sys.stdout.fileno())
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+        except Exception:  # noqa: BLE001
+            pass
         sys.exit(0)
+    except OSError as exc:
+        # Catches ENOSPC (disk full when piping to file), BlockingIOError, etc.
+        sys.stderr.write(f"\n[doubletake error] ⚠️ Write error: {exc}\n")
+        sys.exit(1)
     except TimeoutError as exc:
         sys.stderr.write(f"\n[doubletake error] ⚠️ {exc}\n")
         sys.exit(1)
